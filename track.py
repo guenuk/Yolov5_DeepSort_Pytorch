@@ -110,6 +110,13 @@ def detect(opt):
     if pt and device.type != 'cpu':
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
+
+    #Count and Track people
+    enter_track = []
+    exit_track = []
+
+    ppl_count = 0
+
     for frame_idx, (path, img, im0s, vid_cap, s) in enumerate(dataset):
         t1 = time_sync()
         img = torch.from_numpy(img).to(device)
@@ -130,6 +137,14 @@ def detect(opt):
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms, max_det=opt.max_det)
         dt[2] += time_sync() - t3
 
+        # COUNT
+        # w,h,_ = img.shape
+        w, h, _ = im0s.copy().shape
+        EXIT_AREA_X= (int(w*0.34))
+        EXIT_AREA_Y = (int(h * 0.48))
+
+        ENTRANCE_AREA_X = (int(w*0.60))
+        ENTRANCE_AREA_Y = (int(h*0.28))
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             seen += 1
@@ -173,9 +188,37 @@ def detect(opt):
                         id = output[4]
                         cls = output[5]
 
+
                         c = int(cls)  # integer class
                         label = f'{id} {names[c]} {conf:.2f}'
                         annotator.box_label(bboxes, label, color=colors(c, True))
+
+                        # Track Counting
+                        topLeftX = output[0]
+                        topLeftY = output[1]
+                        if (names[c] == 'frontside'):
+                            #frontside 좌표가 entrance area x y 에 포함
+                            if (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X + 150 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y + 150):
+                                enter_track.append(id)
+                            elif (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X + 150 and ENTRANCE_AREA_Y <= topLeftY and topLeftY <= ENTRANCE_AREA_Y + 150):
+                                for id_record in enter_track:
+                                    if id_record == id:
+                                        ppl_count += 1
+                                        #어레이에서 제거
+                                        enter_track.remove(id_record)
+                                        break
+                        elif (names[c] == 'backside'):
+                            #backside 좌표가 entrance area x y 에 포함
+                            if (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X + 50 and ENTRANCE_AREA_Y <= topLeftY and topLeftY <= ENTRANCE_AREA_Y + 50):
+                                exit_track.append(id)
+                            elif (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X + 50 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y + 50):
+                                for id_record in exit_track:
+                                    if id_record == id:
+                                        ppl_count -= 1
+                                        #어레이에서 제거
+                                        exit_track.remove(id_record)
+                                        break
+
 
                         if save_txt:
                             # to MOT format
@@ -215,6 +258,7 @@ def detect(opt):
                         fps, w, h = 30, im0.shape[1], im0.shape[0]
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                cv2.putText(im0, "PPL COUNT:  "+str(ppl_count), (10, 150), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 2)
                 vid_writer.write(im0)
 
     # Print results
