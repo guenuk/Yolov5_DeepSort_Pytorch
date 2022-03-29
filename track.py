@@ -115,7 +115,8 @@ def detect(opt):
     enter_track = []
     exit_track = []
 
-    ppl_count = 0
+    ppl_count=0
+    green_count=0
 
     for frame_idx, (path, img, im0s, vid_cap, s) in enumerate(dataset):
         t1 = time_sync()
@@ -140,11 +141,21 @@ def detect(opt):
         # COUNT
         # w,h,_ = img.shape
         w, h, _ = im0s.copy().shape
-        EXIT_AREA_X= (int(w*0.34))
-        EXIT_AREA_Y = (int(h * 0.48))
+        # EXIT_AREA_X= (int(w*0.34))
+        # EXIT_AREA_Y = (int(h * 0.48))
 
-        ENTRANCE_AREA_X = (int(w*0.60))
-        ENTRANCE_AREA_Y = (int(h*0.28))
+        EXIT_AREA_X= (450)
+        EXIT_AREA_Y = (300)
+        EXIT_AREA_X2 = (EXIT_AREA_X+140)
+        EXIT_AREA_Y2 = (EXIT_AREA_Y+200)
+
+        # ENTRANCE_AREA_X = (int(w*0.60))
+        # ENTRANCE_AREA_Y = (int(h*0.28))
+        ENTRANCE_AREA_X = (770)
+        ENTRANCE_AREA_Y = (h)
+        ENTRANCE_AREA_X2 = (ENTRANCE_AREA_X+450)
+        ENTRANCE_AREA_Y2 = (120)
+
         # Process detections
         for i, det in enumerate(pred):  # detections per image
             seen += 1
@@ -159,6 +170,9 @@ def detect(opt):
             s += '%gx%g ' % img.shape[2:]  # print string
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
+            #ENTER SIGN
+            isExitDoorOpen = False
+            isEnteranceDoorOpen = False
 
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
@@ -180,6 +194,7 @@ def detect(opt):
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
+
                 # draw boxes for visualization
                 if len(outputs) > 0:
                     for j, (output, conf) in enumerate(zip(outputs, confs)):
@@ -190,34 +205,43 @@ def detect(opt):
 
 
                         c = int(cls)  # integer class
-                        label = f'{id} {names[c]} {conf:.2f}'
-                        annotator.box_label(bboxes, label, color=colors(c, True))
+
 
                         # Track Counting
                         topLeftX = output[0]
                         topLeftY = output[1]
-                        if (names[c] == 'frontside'):
+                        b = names[c] == 'frontside'
+
+                        # debug
+                        label = f'{id} {names[c]} {conf:.2f}'
+                        annotator.box_label(bboxes, label, color=colors(c, True))
+
+
+                        if (names[c] == 'frontsideOfGreen'):
                             #frontside 좌표가 entrance area x y 에 포함
-                            if (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X + 150 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y + 150):
-                                enter_track.append(id)
-                            elif (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X + 150 and ENTRANCE_AREA_Y <= topLeftY and topLeftY <= ENTRANCE_AREA_Y + 150):
-                                for id_record in enter_track:
-                                    if id_record == id:
-                                        ppl_count += 1
-                                        #어레이에서 제거
-                                        enter_track.remove(id_record)
-                                        break
-                        elif (names[c] == 'backside'):
+                            if (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
+                                isExitDoorOpen=True
+                                if (not id in enter_track):
+                                    enter_track.append(id)
+                            elif (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
+                                isEnteranceDoorOpen = True
+                                if (id in enter_track):
+                                    ppl_count += 1
+                                    green_count += 1
+                                    enter_track.remove(id)
+                        elif (names[c] == 'backsideOfGreen'):
                             #backside 좌표가 entrance area x y 에 포함
-                            if (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X + 50 and ENTRANCE_AREA_Y <= topLeftY and topLeftY <= ENTRANCE_AREA_Y + 50):
-                                exit_track.append(id)
-                            elif (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X + 50 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y + 50):
-                                for id_record in exit_track:
-                                    if id_record == id:
-                                        ppl_count -= 1
-                                        #어레이에서 제거
-                                        exit_track.remove(id_record)
-                                        break
+                            if (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
+                                isEnteranceDoorOpen = True
+                                if (not id in exit_track):
+                                    exit_track.append(id)
+                            elif (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
+                                isExitDoorOpen = True
+                                if (id in exit_track):
+                                    ppl_count-=1
+                                    green_count-=1
+                                    exit_track.remove(id)
+
 
 
                         if save_txt:
@@ -258,7 +282,32 @@ def detect(opt):
                         fps, w, h = 30, im0.shape[1], im0.shape[0]
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
-                cv2.putText(im0, "PPL COUNT:  "+str(ppl_count), (10, 150), cv2.FONT_HERSHEY_PLAIN, 1, (0, 0, 255), 2)
+
+                #COUNT OF PEOPLE
+                textWidth, _ = cv2.getTextSize("PPL COUNT:  " + str(ppl_count), cv2.FONT_HERSHEY_PLAIN, 2, 2)
+                textWidth2, _ = cv2.getTextSize("GREEN TAG COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2,2)
+                textWidth3, _ = cv2.getTextSize("HELMET COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2,2)
+                cv2.putText(im0, "PPL COUNT:  "+str(ppl_count), (1000, 30), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+                cv2.putText(im0, "GREEN TAG COUNT:  " + str(green_count), (1000-(textWidth2[0]-textWidth[0]), 70), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+                cv2.putText(im0, "HELMET COUNT:  " + str(green_count), (1000 - (textWidth3[0] - textWidth[0]), 110), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+                # cv2.putText(im0, str(textWidth2[0])+ str(textWidth[0]), (1000, 90),cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+
+                #VIRTUAL DOOR
+                if isExitDoorOpen:
+                    # size, _ = cv2.getTextSize("EXIT DOOR (STATUS: OPEN)", cv2.FONT_HERSHEY_PLAIN, 1, 1)
+                    # cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2-size[1], EXIT_AREA_Y2-size[0]), (0, 255, 0), -1)
+                    cv2.putText(im0, "EXIT DOOR (STATUS: OPEN)",(EXIT_AREA_X, EXIT_AREA_Y-10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255),1)
+                    cv2.rectangle(im0, (EXIT_AREA_X,EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0,255,0),5)
+                else:
+                    cv2.putText(im0, "EXIT DOOR (STATUS: CLOSED)", (EXIT_AREA_X, EXIT_AREA_Y - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0, 0, 255),5)
+                if isEnteranceDoorOpen:
+                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: OPEN)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (0, 255, 0), 5)
+                else:
+                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: CLOSED)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (0, 0, 255), 5)
+
                 vid_writer.write(im0)
 
     # Print results
