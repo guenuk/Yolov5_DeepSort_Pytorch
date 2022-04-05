@@ -1,5 +1,6 @@
 # limit the number of cpus used by high performance libraries
 import os
+
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
@@ -7,8 +8,10 @@ os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
 os.environ["NUMEXPR_NUM_THREADS"] = "1"
 
 import sys
+
 sys.path.insert(0, './yolov5')
 
+import numpy as np
 import argparse
 import os
 import platform
@@ -23,7 +26,7 @@ from yolov5.models.experimental import attempt_load
 from yolov5.utils.downloads import attempt_download
 from yolov5.models.common import DetectMultiBackend
 from yolov5.utils.datasets import LoadImages, LoadStreams
-from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, scale_coords, 
+from yolov5.utils.general import (LOGGER, check_img_size, non_max_suppression, scale_coords,
                                   check_imshow, xyxy2xywh, increment_path)
 from yolov5.utils.torch_utils import select_device, time_sync
 from yolov5.utils.plots import Annotator, colors
@@ -38,7 +41,7 @@ ROOT = Path(os.path.relpath(ROOT, Path.cwd()))  # relative
 
 
 def detect(opt):
-    out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok= \
+    out, source, yolo_model, deep_sort_model, show_vid, save_vid, save_txt, imgsz, evaluate, half, project, name, exist_ok = \
         opt.output, opt.source, opt.yolo_model, opt.deep_sort_model, opt.show_vid, opt.save_vid, \
         opt.save_txt, opt.imgsz, opt.evaluate, opt.half, opt.project, opt.name, opt.exist_ok
     webcam = source == '0' or source.startswith(
@@ -111,12 +114,15 @@ def detect(opt):
         model(torch.zeros(1, 3, *imgsz).to(device).type_as(next(model.model.parameters())))  # warmup
     dt, seen = [0.0, 0.0, 0.0, 0.0], 0
 
-    #Count and Track people
+    # Count and Track people
     enter_track = []
     exit_track = []
 
-    ppl_count=0
-    green_count=0
+    ppl_count = 0
+    green_count = 0
+
+    frameWidth = 999
+    frameHeight = 999
 
     for frame_idx, (path, img, im0s, vid_cap, s) in enumerate(dataset):
         t1 = time_sync()
@@ -135,25 +141,29 @@ def detect(opt):
         dt[1] += t3 - t2
 
         # Apply NMS
-        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms, max_det=opt.max_det)
+        pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, opt.classes, opt.agnostic_nms,
+                                   max_det=opt.max_det)
         dt[2] += time_sync() - t3
 
         # COUNT
         # w,h,_ = img.shape
         w, h, _ = im0s.copy().shape
+        if (frameWidth == 999 or frameHeight == 999):
+            frameWidth = w
+            frameHeight = h
         # EXIT_AREA_X= (int(w*0.34))
         # EXIT_AREA_Y = (int(h * 0.48))
 
-        EXIT_AREA_X= (450)
+        EXIT_AREA_X = (450)
         EXIT_AREA_Y = (300)
-        EXIT_AREA_X2 = (EXIT_AREA_X+140)
-        EXIT_AREA_Y2 = (EXIT_AREA_Y+200)
+        EXIT_AREA_X2 = (EXIT_AREA_X + 140)
+        EXIT_AREA_Y2 = (EXIT_AREA_Y + 200)
 
         # ENTRANCE_AREA_X = (int(w*0.60))
         # ENTRANCE_AREA_Y = (int(h*0.28))
         ENTRANCE_AREA_X = (770)
         ENTRANCE_AREA_Y = (h)
-        ENTRANCE_AREA_X2 = (ENTRANCE_AREA_X+450)
+        ENTRANCE_AREA_X2 = (ENTRANCE_AREA_X + 450)
         ENTRANCE_AREA_Y2 = (120)
 
         # Process detections
@@ -170,7 +180,7 @@ def detect(opt):
             s += '%gx%g ' % img.shape[2:]  # print string
 
             annotator = Annotator(im0, line_width=2, pil=not ascii)
-            #ENTER SIGN
+            # ENTER SIGN
             isExitDoorOpen = False
             isEnteranceDoorOpen = False
 
@@ -194,7 +204,6 @@ def detect(opt):
                 t5 = time_sync()
                 dt[3] += t5 - t4
 
-
                 # draw boxes for visualization
                 if len(outputs) > 0:
                     for j, (output, conf) in enumerate(zip(outputs, confs)):
@@ -203,9 +212,7 @@ def detect(opt):
                         id = output[4]
                         cls = output[5]
 
-
                         c = int(cls)  # integer class
-
 
                         # Track Counting
                         topLeftX = output[0]
@@ -216,33 +223,34 @@ def detect(opt):
                         label = f'{id} {names[c]} {conf:.2f}'
                         annotator.box_label(bboxes, label, color=colors(c, True))
 
-
                         if (names[c] == 'frontsideOfGreen'):
-                            #frontside 좌표가 entrance area x y 에 포함
-                            if (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
-                                isExitDoorOpen=True
+                            # frontside 좌표가 entrance area x y 에 포함
+                            if (
+                                    EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
+                                isExitDoorOpen = True
                                 if (not id in enter_track):
                                     enter_track.append(id)
-                            elif (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
+                            elif (
+                                    ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
                                 isEnteranceDoorOpen = True
                                 if (id in enter_track):
                                     ppl_count += 1
                                     green_count += 1
                                     enter_track.remove(id)
                         elif (names[c] == 'backsideOfGreen'):
-                            #backside 좌표가 entrance area x y 에 포함
-                            if (ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
+                            # backside 좌표가 entrance area x y 에 포함
+                            if (
+                                    ENTRANCE_AREA_X <= topLeftX and topLeftX <= ENTRANCE_AREA_X2 and ENTRANCE_AREA_Y2 <= topLeftY and topLeftY <= ENTRANCE_AREA_Y):
                                 isEnteranceDoorOpen = True
                                 if (not id in exit_track):
                                     exit_track.append(id)
-                            elif (EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
+                            elif (
+                                    EXIT_AREA_X <= topLeftX and topLeftX <= EXIT_AREA_X2 and EXIT_AREA_Y <= topLeftY and topLeftY <= EXIT_AREA_Y2):
                                 isExitDoorOpen = True
                                 if (id in exit_track):
-                                    ppl_count-=1
-                                    green_count-=1
+                                    ppl_count -= 1
+                                    green_count -= 1
                                     exit_track.remove(id)
-
-
 
                         if save_txt:
                             # to MOT format
@@ -283,30 +291,47 @@ def detect(opt):
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
 
-                #COUNT OF PEOPLE
+                # COUNT OF PEOPLE
                 textWidth, _ = cv2.getTextSize("PPL COUNT:  " + str(ppl_count), cv2.FONT_HERSHEY_PLAIN, 2, 2)
-                textWidth2, _ = cv2.getTextSize("GREEN TAG COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2,2)
-                textWidth3, _ = cv2.getTextSize("HELMET COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2,2)
-                cv2.putText(im0, "PPL COUNT:  "+str(ppl_count), (1000, 30), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
-                cv2.putText(im0, "GREEN TAG COUNT:  " + str(green_count), (1000-(textWidth2[0]-textWidth[0]), 70), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
-                cv2.putText(im0, "HELMET COUNT:  " + str(green_count), (1000 - (textWidth3[0] - textWidth[0]), 110), cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+                textWidth2, _ = cv2.getTextSize("GREEN TAG COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2, 2)
+                textWidth3, _ = cv2.getTextSize("HELMET COUNT:  " + str(green_count), cv2.FONT_HERSHEY_PLAIN, 2, 2)
+                cv2.putText(im0, "PPL COUNT:  " + str(ppl_count), (1000, 30), cv2.FONT_HERSHEY_PLAIN, 2,
+                            (255, 255, 255), 2)
+                cv2.putText(im0, "GREEN TAG COUNT:  " + str(green_count), (1000 - (textWidth2[0] - textWidth[0]), 60),
+                            cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
+                cv2.putText(im0, "HELMET COUNT:  " + str(green_count), (1000 - (textWidth3[0] - textWidth[0]), 90),
+                            cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
                 # cv2.putText(im0, str(textWidth2[0])+ str(textWidth[0]), (1000, 90),cv2.FONT_HERSHEY_PLAIN, 2, (255, 255, 255), 2)
 
-                #VIRTUAL DOOR
+                # VIRTUAL DOOR
                 if isExitDoorOpen:
                     # size, _ = cv2.getTextSize("EXIT DOOR (STATUS: OPEN)", cv2.FONT_HERSHEY_PLAIN, 1, 1)
                     # cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2-size[1], EXIT_AREA_Y2-size[0]), (0, 255, 0), -1)
-                    cv2.putText(im0, "EXIT DOOR (STATUS: OPEN)",(EXIT_AREA_X, EXIT_AREA_Y-10), cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255),1)
-                    cv2.rectangle(im0, (EXIT_AREA_X,EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0,255,0),5)
+                    cv2.putText(im0, "EXIT DOOR (STATUS: OPEN)", (EXIT_AREA_X, EXIT_AREA_Y - 10),
+                                cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0, 255, 0), 5)
                 else:
-                    cv2.putText(im0, "EXIT DOOR (STATUS: CLOSED)", (EXIT_AREA_X, EXIT_AREA_Y - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-                    cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0, 0, 255),5)
+                    cv2.putText(im0, "EXIT DOOR (STATUS: CLOSED)", (EXIT_AREA_X, EXIT_AREA_Y - 10),
+                                cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X2, EXIT_AREA_Y2), (0, 0, 255), 5)
                 if isEnteranceDoorOpen:
-                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: OPEN)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (0, 255, 0), 5)
+                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: OPEN)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),
+                                cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2),
+                                  (0, 255, 0), 5)
                 else:
-                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: CLOSED)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
-                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (0, 0, 255), 5)
+                    cv2.putText(im0, "ENTRANCE DOOR (STATUS: CLOSED)", (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2 - 10),
+                                cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
+                    cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2),
+                                  (0, 0, 255), 5)
+                polyPts = np.array(
+                    [[(EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y),
+                      (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2)]], dtype=np.int32)
+                blurred_im0 = cv2.GaussianBlur(im0.copy(), (35,35),0)
+                mask = np.zeros(im0.shape[:2], dtype=np.int8)
+
+                cv2.fillPoly(mask, [polyPts], [255,255,255], 8, 0)
+                im0 = cv2.bitwise_or(im0, im0, mask=mask)
 
                 vid_writer.write(im0)
 
