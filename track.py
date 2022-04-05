@@ -290,6 +290,20 @@ def detect(opt):
                         fps, w, h = 30, im0.shape[1], im0.shape[0]
 
                     vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (w, h))
+                # Blurring
+                polyPts = np.array(
+                    [[(EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y),
+                      (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2)]], dtype=np.int32)
+                blurred_im0 = cv2.GaussianBlur(im0.copy(), (35, 35), 0)
+                mask = np.zeros(im0.shape[:2], dtype=np.uint8)
+                mask_inv = np.ones(im0.shape[:2], dtype=np.uint8)
+                cv2.fillPoly(mask, [polyPts], [255, 255, 255], 8, 0)
+                cv2.fillPoly(mask_inv, [polyPts], [0, 0, 0], 8, 0)
+
+                out1 = cv2.bitwise_and(im0, im0, mask=mask)
+                out2 = cv2.bitwise_and(blurred_im0, blurred_im0, mask=mask_inv)
+                out3 = cv2.bitwise_or(out1, out2)
+                im0 = out3
 
                 # COUNT OF PEOPLE
                 textWidth, _ = cv2.getTextSize("PPL COUNT:  " + str(ppl_count), cv2.FONT_HERSHEY_PLAIN, 2, 2)
@@ -324,29 +338,8 @@ def detect(opt):
                                 cv2.FONT_HERSHEY_PLAIN, 1, (255, 255, 255), 1)
                     cv2.rectangle(im0, (ENTRANCE_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2),
                                   (0, 0, 255), 5)
-                # polyPts = np.array(
-                #     [[(EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y),
-                #       (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2)]], dtype=np.int32)
-                # blurred_im0 = cv2.GaussianBlur(im0.copy(), (35,35),0)
-                # mask = np.zeros(im0.shape[:2], dtype=np.int8)
-                #
-                # cv2.fillPoly(mask, [polyPts], [255,255,255], 8, 0)
-                # im0 = cv2.bitwise_or(im0, im0, mask=mask)
-                #
-                # vid_writer.write(im0)
-                polyPts = np.array(
-                    [[(EXIT_AREA_X, EXIT_AREA_Y), (EXIT_AREA_X, ENTRANCE_AREA_Y), (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y),
-                      (ENTRANCE_AREA_X2, ENTRANCE_AREA_Y2), (ENTRANCE_AREA_X, ENTRANCE_AREA_Y2)]], dtype=np.int32)
-                blurred_im0 = cv2.GaussianBlur(im0.copy(), (35, 35), 0)
-                mask = np.zeros(im0.shape[:2], dtype=np.uint8)
-                mask_inv = cv2.bitwise_not(mask)
-                cv2.fillPoly(mask, [polyPts], [255, 255, 255], 8, 0)
 
-                out1=cv2.bitwise_and(im0, im0, mask=mask)
-                out2=cv2.bitwise_and(blurred_im0,blurred_im0,mask=mask_inv)
-                out3= out1+out2
-
-                vid_writer.write(out3)
+                vid_writer.write(im0)
 
     # Print results
     t = tuple(x / seen * 1E3 for x in dt)  # speeds per image
